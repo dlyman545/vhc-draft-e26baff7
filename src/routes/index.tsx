@@ -43,6 +43,7 @@ function DraftPage() {
   const [loaded, setLoaded] = useState(false);
   const [popover, setPopover] = useState<{ name: string; rect: DOMRect } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
   const localVersion = useRef(0);
 
