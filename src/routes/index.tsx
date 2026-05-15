@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
@@ -19,6 +18,7 @@ type DraftState = {
   teams: Team[];
   pool: string[];
   picks: Pick[];
+  firstPick?: number;
 };
 
 const DEFAULT_STATE: DraftState = {
@@ -31,6 +31,7 @@ const DEFAULT_STATE: DraftState = {
   ],
   pool: [],
   picks: [],
+  firstPick: 0,
 };
 
 function hexToRgb(hex: string) {
@@ -41,11 +42,11 @@ function hexToRgb(hex: string) {
 function DraftPage() {
   const [S, setS] = useState<DraftState>(DEFAULT_STATE);
   const [loaded, setLoaded] = useState(false);
-  const [popover, setPopover] = useState<{ name: string; rect: DOMRect } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmClearPool, setConfirmClearPool] = useState(false);
   const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
+  const [coinFlip, setCoinFlip] = useState<{ spinning: boolean; winner: number | null }>({ spinning: false, winner: null });
   const localVersion = useRef(0);
 
   useEffect(() => {
@@ -104,7 +105,8 @@ function DraftPage() {
   const round = Math.floor(totalPicks / S.tc) + 1;
   const pickInRound = (totalPicks % S.tc) + 1;
   const overall = totalPicks + 1;
-  const onTheClockIdx = totalPicks % S.tc;
+  const firstPick = S.firstPick ?? 0;
+  const onTheClockIdx = (totalPicks + firstPick) % S.tc;
   const lastPick = S.picks[S.picks.length - 1];
 
   const addPlayers = () => {
@@ -125,7 +127,21 @@ function DraftPage() {
       teams: prev.teams.map((t, i) => (i === ti ? { ...t, p: [...t.p, name] } : t)),
       picks: [...prev.picks, { name, team: ti, at: Date.now() }],
     }));
-    setPopover(null);
+  };
+
+  const draftToClock = (name: string) => {
+    if (!visibleTeams[onTheClockIdx]) return;
+    assign(name, onTheClockIdx);
+  };
+
+  const runCoinFlip = () => {
+    if (S.picks.length > 0) return;
+    setCoinFlip({ spinning: true, winner: null });
+    const winner = Math.floor(Math.random() * S.tc);
+    setTimeout(() => {
+      setCoinFlip({ spinning: false, winner });
+      setS((prev) => ({ ...prev, firstPick: winner }));
+    }, 1800);
   };
 
   const release = (name: string, ti: number) => {
@@ -310,6 +326,15 @@ function DraftPage() {
                 ))}
               </div>
             </div>
+            <button
+              className="reset-btn"
+              onClick={runCoinFlip}
+              disabled={S.picks.length > 0}
+              title={S.picks.length > 0 ? "Reset draft to flip again" : "Coin flip for first pick"}
+              style={{ marginRight: 8 }}
+            >
+              🪙 Coin Flip
+            </button>
             <button className="reset-btn" onClick={() => setConfirmClear(true)}>
               Reset Draft
             </button>
@@ -360,23 +385,23 @@ function DraftPage() {
                   </div>
                 ) : (
                   S.pool.map((n, i) => {
-                    const open = popover?.name === n;
                     return (
-                      <div key={n} className={`p-row${open ? " active" : ""}`}>
+                      <div key={n} className="p-row">
                         <span className="p-num">{String(i + 1).padStart(2, "0")}</span>
                         <span className="p-name">{n}</span>
                         <button
                           className="pick-btn"
+                          style={{
+                            ["--tc" as string]: COLORS[onTheClockIdx],
+                            ["--tc-rgb" as string]: hexToRgb(COLORS[onTheClockIdx]),
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setPopover(open ? null : { name: n, rect });
+                            draftToClock(n);
                           }}
+                          title={`Draft to ${visibleTeams[onTheClockIdx]?.n ?? ""}`}
                         >
-                          Draft
-                          <svg viewBox="0 0 10 10" width="10" height="10">
-                            <polygon points="2,1 8,5 2,9" fill="currentColor" />
-                          </svg>
+                          Draft → {visibleTeams[onTheClockIdx]?.n ?? ""}
                         </button>
                       </div>
                     );
@@ -456,14 +481,33 @@ function DraftPage() {
         </div>
       </div>
 
-      {popover && (
-        <PickPopover
-          anchor={popover.rect}
-          teams={visibleTeams}
-          onPick={(ti) => assign(popover.name, ti)}
-          onClose={() => setPopover(null)}
-          name={popover.name}
-        />
+      {(coinFlip.spinning || coinFlip.winner !== null) && (
+        <div className="modal-overlay" onClick={() => !coinFlip.spinning && setCoinFlip({ spinning: false, winner: null })}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ textAlign: "center" }}>
+            <h3>{coinFlip.spinning ? "Flipping…" : "First Pick"}</h3>
+            <div style={{
+              fontSize: 72,
+              margin: "16px 0",
+              display: "inline-block",
+              animation: coinFlip.spinning ? "coinflip 0.5s linear infinite" : "none",
+            }}>🪙</div>
+            {coinFlip.winner !== null && !coinFlip.spinning && (
+              <p style={{ fontSize: 20 }}>
+                <strong style={{ color: COLORS[coinFlip.winner] }}>
+                  {visibleTeams[coinFlip.winner]?.n}
+                </strong>{" "}
+                picks first!
+              </p>
+            )}
+            {!coinFlip.spinning && (
+              <div className="modal-btns">
+                <button className="mbtn mbtn-ok" onClick={() => setCoinFlip({ spinning: false, winner: null })}>
+                  Let's Draft
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {confirmClear && (
@@ -540,100 +584,10 @@ function Crest() {
   );
 }
 
-function PickPopover({
-  anchor,
-  teams,
-  name,
-  onPick,
-  onClose,
-}: {
-  anchor: DOMRect;
-  teams: Team[];
-  name: string;
-  onPick: (ti: number) => void;
-  onClose: () => void;
-  }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; placement: "left" | "right" | "below" }>(
-    { top: 0, left: 0, placement: "left" }
-  );
-
-  useLayoutEffect(() => {
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    const popW = 260;
-    const popH = ref.current?.offsetHeight ?? 200;
-    const gap = 10;
-
-    let placement: "left" | "right" | "below" = "left";
-    let left = anchor.left - popW - gap;
-    let top = anchor.top + anchor.height / 2 - popH / 2;
-
-    if (left < 12) {
-      // not enough room to the left, try right
-      const r = anchor.right + gap;
-      if (r + popW < W - 12) {
-        placement = "right";
-        left = r;
-      } else {
-        placement = "below";
-        left = Math.max(12, Math.min(anchor.left, W - popW - 12));
-        top = anchor.bottom + gap;
-      }
-    }
-    top = Math.max(12, Math.min(top, H - popH - 12));
-    setPos({ top, left, placement });
-  }, [anchor]);
-
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className={`pop pop-${pos.placement}`}
-      ref={ref}
-      style={{ top: pos.top, left: pos.left }}
-    >
-      <div className="pop-arrow" />
-      <div className="pop-hdr">
-        <div className="pop-eyebrow">Selecting</div>
-        <div className="pop-name">{name}</div>
-      </div>
-      <div className="pop-list">
-        {teams.map((t, ti) => (
-          <button
-            key={ti}
-            className="pop-team"
-            style={{
-              ["--tc" as string]: COLORS[ti],
-              ["--tc-rgb" as string]: hexToRgb(COLORS[ti]),
-            }}
-            onClick={() => onPick(ti)}
-          >
-            <span className="pop-dot" />
-            <span className="pop-team-name">{t.n}</span>
-            <span className="pop-team-ct">{t.p.length}</span>
-          </button>
-        ))}
-      </div>
-      <div className="pop-foot">Press Esc to cancel</div>
-    </div>,
-    document.body
-  );
-}
-
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
+
+@keyframes coinflip { 0% { transform: rotateY(0deg) } 100% { transform: rotateY(360deg) } }
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', system-ui, sans-serif; min-height:100vh; margin:0; }
