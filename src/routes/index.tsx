@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   component: DraftPage,
@@ -9,7 +8,7 @@ export const Route = createFileRoute("/")({
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];
 const COLOR_NAMES = ["Blue", "Red", "Green", "Gold"];
-const DRAFT_ID = 1;
+const STORAGE_KEY = "draft_state_local";
 
 type Team = { n: string; p: string[] };
 type Pick = { name: string; team: number; at: number };
@@ -47,63 +46,29 @@ function DraftPage() {
   const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
   const [coinFlip, setCoinFlip] = useState<{ spinning: boolean; winner: number | null }>({ spinning: false, winner: null });
-  const localVersion = useRef(0);
-  const lastSentJSON = useRef<string>("");
 
   useEffect(() => {
-    let active = true;
-    supabase
-      .from("draft_state")
-      .select("state")
-      .eq("id", DRAFT_ID)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        if (data?.state && Object.keys(data.state as object).length) {
-          setS({ ...DEFAULT_STATE, ...(data.state as DraftState) });
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as DraftState;
+        if (parsed && typeof parsed === "object") {
+          setS({ ...DEFAULT_STATE, ...parsed });
         }
-        setLoaded(true);
-      });
-
-    const ch = supabase
-      .channel("draft_state_live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "draft_state", filter: `id=eq.${DRAFT_ID}` },
-        (payload) => {
-          const next = (payload.new as { state?: DraftState })?.state;
-          if (next && Object.keys(next).length) {
-            const merged = { ...DEFAULT_STATE, ...next };
-            // Ignore echoes of our own writes — they cause re-renders that swallow clicks.
-            if (JSON.stringify(merged) === lastSentJSON.current) return;
-            setS(merged);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      active = false;
-      supabase.removeChannel(ch);
-    };
+      }
+    } catch {
+      // ignore
+    }
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    const v = ++localVersion.current;
-    const t = setTimeout(() => {
-      if (v !== localVersion.current) return;
-      lastSentJSON.current = JSON.stringify(S);
-      supabase
-        .from("draft_state")
-        .upsert({
-          id: DRAFT_ID,
-          state: S as unknown as never,
-          updated_at: new Date().toISOString(),
-        })
-        .then(() => {});
-    }, 120);
-    return () => clearTimeout(t);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(S));
+    } catch {
+      // ignore
+    }
   }, [S, loaded]);
 
   const totalPicks = S.picks.length;
