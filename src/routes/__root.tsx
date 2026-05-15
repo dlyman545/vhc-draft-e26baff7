@@ -73,12 +73,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Vagrant Hockey Club Draft" },
-      { name: "description", content: "Live NHL-style draft board for the Vagrant Hockey Club. Pick players, build rosters, watch in real time." },
+      { name: "description", content: "Live draft board for the Vagrant Hockey Club. Pick players, build rosters, watch in real time." },
       { property: "og:title", content: "Vagrant Hockey Club Draft" },
-      { property: "og:description", content: "Live NHL-style draft board. Watch picks happen in real time." },
+      { property: "og:description", content: "Live draft board for the Vagrant Hockey Club. Pick players, build rosters, watch in real time." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Vagrant Hockey Club Draft" },
+      { name: "twitter:description", content: "Live draft board for the Vagrant Hockey Club. Pick players, build rosters, watch in real time." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f2ec2913-efdf-4395-8171-f1300c46d41e/id-preview-1b1ad618--a98286e9-411a-4b87-bedc-01cdf1159cec.lovable.app-1778885610717.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f2ec2913-efdf-4395-8171-f1300c46d41e/id-preview-1b1ad618--a98286e9-411a-4b87-bedc-01cdf1159cec.lovable.app-1778885610717.png" },
     ],
     links: [
       {
