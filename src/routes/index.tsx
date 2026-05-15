@@ -170,7 +170,6 @@ function DraftPage() {
       <div className="page">
         <div className="shell">
           <header className="hdr">
-            <div className="hdr-bg" />
             <Crest />
             <div className="hdr-center">
               <div className="hdr-eyebrow">
