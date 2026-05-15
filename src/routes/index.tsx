@@ -163,8 +163,62 @@ function DraftPage() {
       teams: prev.teams.map((t, i) => (i === ti ? { ...t, n } : t)),
     }));
 
-  const setTc = (n: number) =>
+  const setTc = (n: number) => {
+    const affected = S.teams
+      .slice(n)
+      .map((t, i) => ({ ti: n + i, players: t.p }))
+      .filter((x) => x.players.length > 0);
+    if (n < S.tc && affected.length > 0) {
+      setConfirmShrink({ newTc: n, affected });
+      return;
+    }
     setS((prev) => ({ ...prev, tc: n }));
+  };
+
+  const shrinkReleaseOnly = () => {
+    if (!confirmShrink) return;
+    const { newTc, affected } = confirmShrink;
+    const releasedNames = affected.flatMap((a) => a.players);
+    const releasedSet = new Set(releasedNames);
+    setS((prev) => {
+      const seen = new Set<string>();
+      const pool = [...releasedNames, ...prev.pool].filter((n) => {
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+      return {
+        ...prev,
+        tc: newTc,
+        teams: prev.teams.map((t, i) => (i >= newTc ? { ...t, p: [] } : t)),
+        pool,
+        picks: prev.picks.filter((pk) => !(pk.team >= newTc && releasedSet.has(pk.name))),
+      };
+    });
+    setConfirmShrink(null);
+  };
+
+  const shrinkResetAll = () => {
+    if (!confirmShrink) return;
+    const { newTc } = confirmShrink;
+    setS((prev) => {
+      const allPlayers = prev.teams.flatMap((t) => t.p);
+      const seen = new Set<string>();
+      const pool = [...allPlayers, ...prev.pool].filter((n) => {
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+      return {
+        ...prev,
+        tc: newTc,
+        teams: prev.teams.map((t) => ({ ...t, p: [] })),
+        pool,
+        picks: [],
+      };
+    });
+    setConfirmShrink(null);
+  };
 
   const visibleTeams = useMemo(() => S.teams.slice(0, S.tc), [S.teams, S.tc]);
 
