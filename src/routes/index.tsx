@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
@@ -8,6 +9,7 @@ export const Route = createFileRoute("/")({
 });
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];
+const COLOR_NAMES = ["Blue", "Red", "Green", "Gold"];
 const DRAFT_ID = 1;
 
 type Team = { n: string; p: string[] };
@@ -39,13 +41,11 @@ function hexToRgb(hex: string) {
 function DraftPage() {
   const [S, setS] = useState<DraftState>(DEFAULT_STATE);
   const [loaded, setLoaded] = useState(false);
-  const [popoverFor, setPopoverFor] = useState<string | null>(null);
+  const [popover, setPopover] = useState<{ name: string; rect: DOMRect } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [input, setInput] = useState("");
   const localVersion = useRef(0);
-  const popRef = useRef<HTMLDivElement | null>(null);
 
-  // Initial load + realtime subscription
   useEffect(() => {
     let active = true;
     supabase
@@ -81,7 +81,6 @@ function DraftPage() {
     };
   }, []);
 
-  // Persist to Supabase whenever local state changes (after initial load)
   useEffect(() => {
     if (!loaded) return;
     const v = ++localVersion.current;
@@ -89,28 +88,15 @@ function DraftPage() {
       if (v !== localVersion.current) return;
       supabase
         .from("draft_state")
-        .upsert({ id: DRAFT_ID, state: S as unknown as object, updated_at: new Date().toISOString() })
+        .upsert({
+          id: DRAFT_ID,
+          state: S as unknown as never,
+          updated_at: new Date().toISOString(),
+        })
         .then(() => {});
     }, 120);
     return () => clearTimeout(t);
   }, [S, loaded]);
-
-  // Close popover on outside click / esc
-  useEffect(() => {
-    if (!popoverFor) return;
-    const onDoc = (e: MouseEvent) => {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) setPopoverFor(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPopoverFor(null);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [popoverFor]);
 
   const totalPicks = S.picks.length;
   const round = Math.floor(totalPicks / S.tc) + 1;
@@ -131,18 +117,13 @@ function DraftPage() {
   };
 
   const assign = (name: string, ti: number) => {
-    setS((prev) => {
-      const teams = prev.teams.map((t, i) =>
-        i === ti ? { ...t, p: [...t.p, name] } : t
-      );
-      return {
-        ...prev,
-        pool: prev.pool.filter((p) => p !== name),
-        teams,
-        picks: [...prev.picks, { name, team: ti, at: Date.now() }],
-      };
-    });
-    setPopoverFor(null);
+    setS((prev) => ({
+      ...prev,
+      pool: prev.pool.filter((p) => p !== name),
+      teams: prev.teams.map((t, i) => (i === ti ? { ...t, p: [...t.p, name] } : t)),
+      picks: [...prev.picks, { name, team: ti, at: Date.now() }],
+    }));
+    setPopover(null);
   };
 
   const release = (name: string, ti: number) => {
@@ -155,8 +136,6 @@ function DraftPage() {
       picks: prev.picks.filter((pk) => !(pk.name === name && pk.team === ti)),
     }));
   };
-
-  const setTc = (n: number) => setS((prev) => ({ ...prev, tc: n }));
 
   const clearAll = () => {
     setS((prev) => {
@@ -177,235 +156,247 @@ function DraftPage() {
       teams: prev.teams.map((t, i) => (i === ti ? { ...t, n } : t)),
     }));
 
+  const setTc = (n: number) =>
+    setS((prev) => ({ ...prev, tc: n }));
+
   const visibleTeams = useMemo(() => S.teams.slice(0, S.tc), [S.teams, S.tc]);
+
+  const pickIndexFor = (name: string, ti: number) =>
+    S.picks.findIndex((pk) => pk.name === name && pk.team === ti);
 
   return (
     <>
       <style>{css}</style>
-      <div id="app">
-        <header className="hdr">
-          <Shield />
-          <div className="hdr-center">
-            <div className="hdr-eyebrow">Official Player Selection · Live</div>
-            <div className="hdr-title">Vagrant Hockey Club Draft</div>
-            <div className="hdr-sub">
-              <span className="round-pill">
-                Round <b>{round}</b>
-              </span>
-              <span className="round-pill">
-                Pick <b>{pickInRound}</b>
-              </span>
-              <span className="round-pill overall">
-                Overall <b>#{overall}</b>
-              </span>
-              <span className="live-dot" /> Live
-            </div>
-          </div>
-          <Shield />
-        </header>
-
-        <div className="ticker">
-          <div className="ticker-label">On the Clock</div>
-          <div className="ticker-otc">
-            <span
-              className="otc-dot"
-              style={{ background: COLORS[onTheClockIdx] }}
-            />
-            <span className="otc-name" style={{ color: COLORS[onTheClockIdx] }}>
-              {visibleTeams[onTheClockIdx]?.n ?? "—"}
-            </span>
-          </div>
-          <div className="ticker-label">Last Pick</div>
-          <div className="ticker-last">
-            {lastPick ? (
-              <>
-                <span style={{ color: COLORS[lastPick.team] }}>
-                  {S.teams[lastPick.team]?.n}
+      <div className="page">
+        <div className="shell">
+          <header className="hdr">
+            <Crest />
+            <div className="hdr-center">
+              <div className="hdr-eyebrow">
+                <span className="live">
+                  <span className="live-dot" /> Live
                 </span>
-                <span className="ticker-arrow">→</span>
-                <span className="ticker-player">{lastPick.name}</span>
-              </>
-            ) : (
-              <span className="ticker-empty">Waiting for first selection…</span>
-            )}
-          </div>
-        </div>
+                <span className="dot-sep">·</span>
+                Official Player Selection
+              </div>
+              <h1 className="hdr-title">Vagrant Hockey Club Draft</h1>
+              <div className="hdr-meta">
+                <Stat label="Round" value={round} />
+                <Stat label="Pick" value={pickInRound} />
+                <Stat label="Overall" value={`#${overall}`} highlight />
+                <Stat label="Players Drafted" value={totalPicks} />
+              </div>
+            </div>
+            <Crest />
+          </header>
 
-        <div className="toolbar">
-          <div className="tc-wrap">
-            <span className="tc-label">Teams</span>
-            <div className="tc-btns">
-              {[2, 3, 4].map((n) => (
-                <button
-                  key={n}
-                  className={`tc-btn${S.tc === n ? " on" : ""}`}
-                  onClick={() => setTc(n)}
-                >
-                  {n}
+          <div className="broadcast">
+            <div className="bc-block">
+              <div className="bc-label">On the Clock</div>
+              <div className="bc-team">
+                <span
+                  className="bc-dot"
+                  style={{
+                    background: COLORS[onTheClockIdx],
+                    boxShadow: `0 0 14px ${COLORS[onTheClockIdx]}`,
+                  }}
+                />
+                <span style={{ color: COLORS[onTheClockIdx] }}>
+                  {visibleTeams[onTheClockIdx]?.n ?? "—"}
+                </span>
+              </div>
+            </div>
+            <div className="bc-divider" />
+            <div className="bc-block flex-1 min-w-0">
+              <div className="bc-label">Last Selection</div>
+              <div className="bc-last">
+                {lastPick ? (
+                  <>
+                    <span
+                      className="bc-team-tag"
+                      style={{
+                        color: COLORS[lastPick.team],
+                        borderColor: `rgba(${hexToRgb(COLORS[lastPick.team])},.4)`,
+                      }}
+                    >
+                      {S.teams[lastPick.team]?.n}
+                    </span>
+                    <span className="bc-player">{lastPick.name}</span>
+                  </>
+                ) : (
+                  <span className="bc-empty">Awaiting first selection</span>
+                )}
+              </div>
+            </div>
+            <div className="bc-divider hide-sm" />
+            <div className="bc-block hide-sm">
+              <div className="bc-label">Teams</div>
+              <div className="seg">
+                {[2, 3, 4].map((n) => (
+                  <button
+                    key={n}
+                    className={`seg-btn${S.tc === n ? " on" : ""}`}
+                    onClick={() => setTc(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button className="reset-btn" onClick={() => setConfirmClear(true)}>
+              Reset Draft
+            </button>
+          </div>
+
+          <div className="body">
+            <aside className="pool-col">
+              <div className="sec-hdr">
+                <div>
+                  <div className="sec-eyebrow">Available</div>
+                  <div className="sec-title">Draft Pool</div>
+                </div>
+                <span className="badge">{S.pool.length}</span>
+              </div>
+
+              <div className="inp-area">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      addPlayers();
+                    }
+                  }}
+                  placeholder="Add prospects — one name per line…"
+                />
+                <button className="add-btn" onClick={addPlayers} disabled={!input.trim()}>
+                  Add to Pool
                 </button>
-              ))}
-            </div>
-          </div>
-          <button className="clr-btn" onClick={() => setConfirmClear(true)}>
-            Clear All Picks
-          </button>
-        </div>
+              </div>
 
-        <div className="body">
-          <div className="pool-col">
-            <div className="sec-hdr">
-              <span className="sec-title">Draft Pool</span>
-              <span className="badge">{S.pool.length}</span>
-            </div>
-            <div className="inp-area">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    addPlayers();
-                  }
-                }}
-                placeholder="Type or paste names (one per line)…"
-              />
-              <button className="add-btn" onClick={addPlayers}>
-                + Add to Pool
-              </button>
-            </div>
-            <div className="pool-list">
-              {S.pool.length === 0 ? (
-                <div className="empty-pool">No players in pool</div>
-              ) : (
-                S.pool.map((n, i) => {
-                  const open = popoverFor === n;
-                  return (
-                    <div key={n} className={`p-row${open ? " selected" : ""}`}>
-                      <span className="p-num">{i + 1}</span>
-                      <span className="p-name">{n}</span>
-                      <div className="p-pick-wrap">
+              <div className="pool-list">
+                {S.pool.length === 0 ? (
+                  <div className="empty-pool">
+                    <div className="empty-ico">⛸</div>
+                    No prospects on the board
+                  </div>
+                ) : (
+                  S.pool.map((n, i) => {
+                    const open = popover?.name === n;
+                    return (
+                      <div key={n} className={`p-row${open ? " active" : ""}`}>
+                        <span className="p-num">{String(i + 1).padStart(2, "0")}</span>
+                        <span className="p-name">{n}</span>
                         <button
-                          className="pick-icon"
+                          className="pick-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPopoverFor(open ? null : n);
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setPopover(open ? null : { name: n, rect });
                           }}
-                          aria-label={`Draft ${n}`}
                         >
-                          <svg viewBox="0 0 8 8">
-                            <polygon points="2,1 7,4 2,7" />
+                          Draft
+                          <svg viewBox="0 0 10 10" width="10" height="10">
+                            <polygon points="2,1 8,5 2,9" fill="currentColor" />
                           </svg>
                         </button>
-                        {open && (
-                          <div className="pick-pop" ref={popRef}>
-                            <div className="pop-arrow" />
-                            <div className="pop-label">Draft to</div>
-                            {visibleTeams.map((t, ti) => (
-                              <button
-                                key={ti}
-                                className="pop-team"
-                                onClick={() => assign(n, ti)}
-                              >
-                                <span
-                                  className="pop-dot"
-                                  style={{ background: COLORS[ti] }}
-                                />
-                                <span className="pop-name">{t.n}</span>
-                                <span className="pop-ct">{t.p.length}p</span>
-                              </button>
-                            ))}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </aside>
+
+            <main className="teams-col">
+              <div
+                className="teams-grid"
+                style={{
+                  gridTemplateColumns:
+                    S.tc === 2
+                      ? "repeat(2, minmax(0, 1fr))"
+                      : S.tc === 3
+                      ? "repeat(3, minmax(0, 1fr))"
+                      : "repeat(2, minmax(0, 1fr))",
+                }}
+              >
+                {visibleTeams.map((t, ti) => {
+                  const c = COLORS[ti];
+                  const rgb = hexToRgb(c);
+                  const onClock = ti === onTheClockIdx;
+                  return (
+                    <section
+                      key={ti}
+                      className={`tcard${onClock ? " on-clock" : ""}`}
+                      style={{
+                        ["--tc" as string]: c,
+                        ["--tc-rgb" as string]: rgb,
+                      }}
+                    >
+                      <div className="tcard-stripe" />
+                      <header className="tcard-hdr">
+                        <div className="tcard-id">
+                          <div className="tcard-num">{String(ti + 1).padStart(2, "0")}</div>
+                          <div className="tcard-color">{COLOR_NAMES[ti]}</div>
+                        </div>
+                        <div className="tcard-name-wrap">
+                          <input
+                            className="tcard-name"
+                            value={t.n}
+                            onChange={(e) => renameTeam(ti, e.target.value)}
+                          />
+                          <div className="tcard-stats">
+                            <span>{t.p.length} {t.p.length === 1 ? "player" : "players"}</span>
+                            {onClock && <span className="otc-pill">● On the Clock</span>}
                           </div>
+                        </div>
+                      </header>
+                      <div className="tcard-body">
+                        {t.p.length === 0 ? (
+                          <div className="empty-team">
+                            {onClock ? "Make the next pick" : "No selections yet"}
+                          </div>
+                        ) : (
+                          t.p.map((p) => {
+                            const idx = pickIndexFor(p, ti);
+                            const r = idx >= 0 ? Math.floor(idx / S.tc) + 1 : 1;
+                            return (
+                              <div key={p} className="tm-player" onClick={() => release(p, ti)}>
+                                <span className="tm-round">R{r}</span>
+                                <span className="tm-pname">{p}</span>
+                                <span className="rel-hint">Release</span>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
-                    </div>
+                    </section>
                   );
-                })
-              )}
-            </div>
-          </div>
-
-          <div className="teams-col">
-            <div
-              className="teams-grid"
-              style={{
-                gridTemplateColumns: S.tc === 3 ? "1fr 1fr 1fr" : "1fr 1fr",
-              }}
-            >
-              {visibleTeams.map((t, ti) => {
-                const c = COLORS[ti];
-                const rgb = hexToRgb(c);
-                const onClock = ti === onTheClockIdx;
-                return (
-                  <div
-                    key={ti}
-                    className={`tcard${onClock ? " on-clock" : ""}`}
-                    style={{ borderTop: `3px solid ${c}` }}
-                  >
-                    <div
-                      className="tcard-hdr"
-                      style={{ background: `rgba(${rgb},.05)` }}
-                    >
-                      <div className="tcard-bar" style={{ background: c }} />
-                      <input
-                        className="tcard-name"
-                        value={t.n}
-                        style={{ color: c, caretColor: c }}
-                        onChange={(e) => renameTeam(ti, e.target.value)}
-                      />
-                      {onClock && <span className="otc-pill">On the Clock</span>}
-                      <span
-                        className="tcard-pill"
-                        style={{
-                          color: c,
-                          background: `rgba(${rgb},.1)`,
-                          border: `1px solid rgba(${rgb},.25)`,
-                        }}
-                      >
-                        {t.p.length} {t.p.length === 1 ? "player" : "players"}
-                      </span>
-                    </div>
-                    <div className="tcard-body">
-                      {t.p.length === 0 ? (
-                        <div className="empty-team">On the clock…</div>
-                      ) : (
-                        t.p.map((p, idx) => (
-                          <div
-                            key={p}
-                            className="tm-player"
-                            onClick={() => release(p, ti)}
-                          >
-                            <span
-                              className="tm-pick-no"
-                              style={{ color: c }}
-                            >
-                              R{Math.floor((S.picks.findIndex(pk => pk.name === p && pk.team === ti)) / S.tc) + 1 || idx + 1}
-                            </span>
-                            <span className="tm-pname">{p}</span>
-                            <span className="rel-hint">Release</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                })}
+              </div>
+            </main>
           </div>
         </div>
       </div>
 
+      {popover && (
+        <PickPopover
+          anchor={popover.rect}
+          teams={visibleTeams}
+          onPick={(ti) => assign(popover.name, ti)}
+          onClose={() => setPopover(null)}
+          name={popover.name}
+        />
+      )}
+
       {confirmClear && (
         <div className="modal-overlay" onClick={() => setConfirmClear(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Clear All Picks?</h3>
-            <p>All players return to the draft pool. Team names are kept. This affects every viewer.</p>
+            <h3>Reset the Draft?</h3>
+            <p>All players return to the pool. Team names are kept. This affects every viewer in real time.</p>
             <div className="modal-btns">
-              <button className="mbtn mbtn-cancel" onClick={() => setConfirmClear(false)}>
-                Cancel
-              </button>
-              <button className="mbtn mbtn-ok" onClick={clearAll}>
-                Clear
-              </button>
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmClear(false)}>Cancel</button>
+              <button className="mbtn mbtn-ok" onClick={clearAll}>Reset</button>
             </div>
           </div>
         </div>
@@ -414,136 +405,605 @@ function DraftPage() {
   );
 }
 
-function Shield() {
+function Stat({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
-    <svg className="hdr-shield" viewBox="0 0 46 56">
-      <path d="M23 2L3 11v17c0 13 9 22.5 20 25.5C34 50.5 43 41 43 28V11Z" fill="#0b1835" stroke="#c9a84c" strokeWidth="1.5" />
-      <path d="M23 7.5L8 15v13c0 10 6.5 17.5 15 20 8.5-2.5 15-10 15-20V15Z" fill="#060d22" />
-      <text x="23" y="33" textAnchor="middle" fontFamily="Barlow Condensed, sans-serif" fontSize="14" fontWeight="900" fill="#c9a84c">VHC</text>
+    <div className={`stat${highlight ? " stat-hl" : ""}`}>
+      <div className="stat-val">{value}</div>
+      <div className="stat-lbl">{label}</div>
+    </div>
+  );
+}
+
+function Crest() {
+  return (
+    <svg className="crest" viewBox="0 0 60 72" aria-hidden>
+      <defs>
+        <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1a2950" />
+          <stop offset="1" stopColor="#060d22" />
+        </linearGradient>
+      </defs>
+      <path d="M30 3L5 14v22c0 17 12 28 25 32 13-4 25-15 25-32V14Z" fill="url(#cg)" stroke="#c9a84c" strokeWidth="1.5" />
+      <path d="M30 9L11 18v18c0 13 9 22 19 26 10-4 19-13 19-26V18Z" fill="none" stroke="rgba(201,168,76,.35)" strokeWidth=".8" />
+      <text x="30" y="42" textAnchor="middle" fontFamily="Barlow Condensed, sans-serif" fontSize="18" fontWeight="900" fill="#c9a84c" letterSpacing="1">VHC</text>
     </svg>
   );
 }
 
+function PickPopover({
+  anchor,
+  teams,
+  name,
+  onPick,
+  onClose,
+}: {
+  anchor: DOMRect;
+  teams: Team[];
+  name: string;
+  onPick: (ti: number) => void;
+  onClose: () => void;
+  }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; placement: "left" | "right" | "below" }>(
+    { top: 0, left: 0, placement: "left" }
+  );
+
+  useLayoutEffect(() => {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const popW = 260;
+    const popH = ref.current?.offsetHeight ?? 200;
+    const gap = 10;
+
+    let placement: "left" | "right" | "below" = "left";
+    let left = anchor.left - popW - gap;
+    let top = anchor.top + anchor.height / 2 - popH / 2;
+
+    if (left < 12) {
+      // not enough room to the left, try right
+      const r = anchor.right + gap;
+      if (r + popW < W - 12) {
+        placement = "right";
+        left = r;
+      } else {
+        placement = "below";
+        left = Math.max(12, Math.min(anchor.left, W - popW - 12));
+        top = anchor.bottom + gap;
+      }
+    }
+    top = Math.max(12, Math.min(top, H - popH - 12));
+    setPos({ top, left, placement });
+  }, [anchor]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className={`pop pop-${pos.placement}`}
+      ref={ref}
+      style={{ top: pos.top, left: pos.left }}
+    >
+      <div className="pop-arrow" />
+      <div className="pop-hdr">
+        <div className="pop-eyebrow">Selecting</div>
+        <div className="pop-name">{name}</div>
+      </div>
+      <div className="pop-list">
+        {teams.map((t, ti) => (
+          <button
+            key={ti}
+            className="pop-team"
+            style={{
+              ["--tc" as string]: COLORS[ti],
+              ["--tc-rgb" as string]: hexToRgb(COLORS[ti]),
+            }}
+            onClick={() => onPick(ti)}
+          >
+            <span className="pop-dot" />
+            <span className="pop-team-name">{t.n}</span>
+            <span className="pop-team-ct">{t.p.length}</span>
+          </button>
+        ))}
+      </div>
+      <div className="pop-foot">Press Esc to cancel</div>
+    </div>,
+    document.body
+  );
+}
+
 const css = `
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;0,800;0,900;1,700&family=Barlow:wght@400;500;600&display=swap');
-html, body { background:#04091a; color:#e2e8f4; font-family:'Barlow', sans-serif; min-height:100vh; }
-* { box-sizing: border-box; }
-#app { max-width:1300px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
 
-.hdr { background: linear-gradient(180deg, #07112c 0%, #060d22 100%); border-bottom:2px solid #c9a84c; padding:18px 24px 14px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-shrink:0; position:relative; }
-.hdr::after { content:""; position:absolute; left:0; right:0; bottom:-2px; height:2px; background:linear-gradient(90deg, transparent, #c9a84c, transparent); }
-.hdr-center { text-align:center; flex:1; }
-.hdr-eyebrow { font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; letter-spacing:.35em; color:#c9a84c; text-transform:uppercase; margin-bottom:4px; }
-.hdr-title { font-family:'Barlow Condensed', sans-serif; font-size:38px; font-weight:900; text-transform:uppercase; letter-spacing:.12em; color:#fff; line-height:1; text-shadow:0 2px 12px rgba(201,168,76,.3); }
-.hdr-sub { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; letter-spacing:.18em; color:#5a6f99; text-transform:uppercase; }
-.round-pill { padding:3px 10px; border:1px solid rgba(201,168,76,.3); border-radius:2px; color:#9aa8c4; }
-.round-pill b { color:#c9a84c; margin-left:4px; }
-.round-pill.overall b { color:#fff; }
-.live-dot { width:7px; height:7px; border-radius:50%; background:#ef4444; box-shadow:0 0 8px #ef4444; animation:pulse 1.4s infinite; margin-left:6px; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-.hdr-shield { width:54px; height:64px; flex-shrink:0; filter:drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', system-ui, sans-serif; min-height:100vh; margin:0; }
+.flex-1 { flex:1; }
+.min-w-0 { min-width:0; }
+.hide-sm { }
+@media (max-width: 820px) { .hide-sm { display:none !important; } }
 
-.ticker { display:flex; align-items:center; gap:14px; padding:10px 22px; background:linear-gradient(90deg, #04091a, #0a1530, #04091a); border-bottom:1px solid rgba(201,168,76,.2); flex-shrink:0; flex-wrap:wrap; }
-.ticker-label { font-family:'Barlow Condensed', sans-serif; font-size:10px; font-weight:800; letter-spacing:.25em; color:#4a5f88; text-transform:uppercase; }
-.ticker-otc { display:flex; align-items:center; gap:8px; padding:4px 12px; background:rgba(0,0,0,.3); border-radius:3px; }
-.otc-dot { width:10px; height:10px; border-radius:50%; box-shadow:0 0 10px currentColor; }
-.otc-name { font-family:'Barlow Condensed', sans-serif; font-size:16px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
-.ticker-last { display:flex; align-items:center; gap:8px; font-family:'Barlow Condensed', sans-serif; font-size:13px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; flex:1; min-width:0; overflow:hidden; }
-.ticker-arrow { color:#3a4f74; }
-.ticker-player { color:#fff; }
-.ticker-empty { color:#3a4f74; font-style:italic; text-transform:none; letter-spacing:0; }
+.page {
+  min-height:100vh;
+  background:
+    radial-gradient(1100px 600px at 50% -120px, rgba(201,168,76,.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(59,130,246,.06), transparent 70%),
+    linear-gradient(180deg, #03060f 0%, #050a1c 100%);
+  padding:18px;
+}
+.shell {
+  max-width:1400px; margin:0 auto;
+  background:linear-gradient(180deg, rgba(10,18,40,.8), rgba(6,12,30,.8));
+  border:1px solid rgba(201,168,76,.18);
+  border-radius:10px;
+  overflow:hidden;
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.02) inset;
+}
 
-.toolbar { display:flex; align-items:center; justify-content:space-between; padding:9px 20px; background:#060d22; border-bottom:1px solid rgba(201,168,76,.18); gap:12px; flex-wrap:wrap; flex-shrink:0; }
-.tc-wrap { display:flex; align-items:center; gap:10px; }
-.tc-label { font-family:'Barlow Condensed', sans-serif; font-size:12px; font-weight:700; letter-spacing:.2em; color:#5a6f99; text-transform:uppercase; }
-.tc-btns { display:flex; border:1px solid rgba(201,168,76,.38); border-radius:3px; overflow:hidden; }
-.tc-btn { background:transparent; border:none; color:#c9a84c; font-family:'Barlow Condensed', sans-serif; font-size:15px; font-weight:700; padding:5px 16px; cursor:pointer; transition:background .12s; }
-.tc-btn:hover { background:rgba(201,168,76,.1); }
-.tc-btn.on { background:#c9a84c; color:#04091a; }
+/* ─── HEADER ─── */
+.hdr {
+  position:relative;
+  padding:22px 28px 20px;
+  display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:24px;
+  border-bottom:1px solid rgba(201,168,76,.25);
+  background:
+    radial-gradient(800px 220px at 50% -40px, rgba(201,168,76,.18), transparent 65%),
+    linear-gradient(180deg, #0a1430 0%, #060d22 100%);
+}
+.hdr::after {
+  content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px;
+  background:linear-gradient(90deg, transparent, #c9a84c 30%, #c9a84c 70%, transparent);
+  opacity:.7;
+}
+.crest { width:56px; height:68px; flex-shrink:0; filter:drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
+.hdr-center { text-align:center; }
+.hdr-eyebrow {
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:700; letter-spacing:.32em;
+  color:#8aa0c9; text-transform:uppercase; margin-bottom:6px;
+}
+.dot-sep { color:rgba(201,168,76,.5); }
+.live { display:inline-flex; align-items:center; gap:6px; color:#ef4444; font-weight:800; }
+.live-dot { width:7px; height:7px; border-radius:50%; background:#ef4444; box-shadow:0 0 10px #ef4444; animation:pulse 1.4s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.9)} }
 
-.clr-btn { background:transparent; border:1px solid #7f1d1d; color:#f87171; font-family:'Barlow Condensed', sans-serif; font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:6px 16px; border-radius:3px; cursor:pointer; transition:all .12s; }
-.clr-btn:hover { background:#7f1d1d; color:#fff; }
+.hdr-title {
+  margin:0;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:42px; font-weight:900; line-height:1;
+  text-transform:uppercase; letter-spacing:.1em;
+  color:#fff;
+  text-shadow:0 2px 18px rgba(201,168,76,.25);
+}
+.hdr-meta { display:flex; justify-content:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.stat {
+  display:flex; flex-direction:column; align-items:center;
+  background:rgba(0,0,0,.35);
+  border:1px solid rgba(201,168,76,.18);
+  border-radius:5px;
+  padding:6px 14px;
+  min-width:74px;
+}
+.stat-val {
+  font-family:'Barlow Condensed', sans-serif;
+  font-weight:900; font-size:20px; line-height:1; color:#fff; letter-spacing:.04em;
+}
+.stat-lbl {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.22em; text-transform:uppercase;
+  color:#5a6f99; margin-top:4px;
+}
+.stat-hl { border-color:rgba(201,168,76,.5); background:linear-gradient(180deg, rgba(201,168,76,.18), rgba(201,168,76,.04)); }
+.stat-hl .stat-val { color:#c9a84c; }
 
-.body { display:grid; grid-template-columns: 300px 1fr; flex:1; }
-.pool-col { background:#060d22; border-right:1px solid rgba(255,255,255,.06); display:flex; flex-direction:column; min-height:0; }
-.sec-hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; border-bottom:1px solid rgba(255,255,255,.06); background:#07102a; flex-shrink:0; }
-.sec-title { font-family:'Barlow Condensed', sans-serif; font-size:12px; font-weight:800; letter-spacing:.22em; color:#c9a84c; text-transform:uppercase; }
-.badge { background:rgba(201,168,76,.1); color:#c9a84c; font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; padding:1px 9px; border-radius:2px; border:1px solid rgba(201,168,76,.28); }
-.inp-area { padding:10px; border-bottom:1px solid rgba(255,255,255,.05); flex-shrink:0; }
-.inp-area textarea { width:100%; background:#030812; border:1px solid rgba(255,255,255,.09); border-radius:3px; color:#e2e8f4; font-family:'Barlow', sans-serif; font-size:13px; padding:7px 10px; resize:none; height:68px; outline:none; transition:border-color .15s; }
-.inp-area textarea:focus { border-color:rgba(201,168,76,.45); }
-.inp-area textarea::placeholder { color:#1a2640; }
-.add-btn { margin-top:6px; width:100%; background:rgba(201,168,76,.08); border:1px solid rgba(201,168,76,.3); color:#c9a84c; font-family:'Barlow Condensed', sans-serif; font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:6px; border-radius:3px; cursor:pointer; transition:all .12s; }
-.add-btn:hover { background:rgba(201,168,76,.16); }
+/* ─── BROADCAST BAR ─── */
+.broadcast {
+  display:flex; align-items:center; gap:18px;
+  padding:14px 22px;
+  background:linear-gradient(90deg, #050b1a 0%, #0a1530 50%, #050b1a 100%);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  flex-wrap:wrap;
+}
+.bc-block { display:flex; flex-direction:column; gap:4px; }
+.bc-label {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; font-weight:800; letter-spacing:.28em;
+  color:#4a5f88; text-transform:uppercase;
+}
+.bc-team {
+  display:flex; align-items:center; gap:9px;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:18px; font-weight:900; letter-spacing:.08em; text-transform:uppercase;
+}
+.bc-dot { width:11px; height:11px; border-radius:50%; }
+.bc-divider { width:1px; height:36px; background:rgba(201,168,76,.18); }
+.bc-last {
+  display:flex; align-items:center; gap:10px;
+  min-width:0; overflow:hidden;
+}
+.bc-team-tag {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:800; letter-spacing:.18em; text-transform:uppercase;
+  border:1px solid; border-radius:3px; padding:3px 8px;
+  flex-shrink:0;
+}
+.bc-player {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:18px; font-weight:700; letter-spacing:.04em;
+  color:#fff; text-transform:uppercase;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.bc-empty { font-size:13px; color:#3a4f74; font-style:italic; }
 
-.pool-list { overflow-y:auto; overflow-x:visible; flex:1; min-height:120px; }
-.pool-list::-webkit-scrollbar { width:3px; }
-.pool-list::-webkit-scrollbar-thumb { background:rgba(201,168,76,.2); border-radius:2px; }
-.empty-pool { padding:20px; text-align:center; font-family:'Barlow Condensed', sans-serif; font-size:11px; color:#1a2640; letter-spacing:.15em; text-transform:uppercase; }
+.seg {
+  display:inline-flex; border:1px solid rgba(201,168,76,.35);
+  border-radius:4px; overflow:hidden; background:rgba(0,0,0,.25);
+}
+.seg-btn {
+  background:transparent; border:none;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:14px; font-weight:800; padding:5px 14px;
+  color:#c9a84c; cursor:pointer; transition:all .12s;
+}
+.seg-btn:hover { background:rgba(201,168,76,.12); }
+.seg-btn.on { background:#c9a84c; color:#04091a; }
 
-.p-row { display:flex; align-items:center; border-bottom:1px solid rgba(255,255,255,.04); transition:background .1s; position:relative; }
-.p-row.selected { background:#0b1835; }
-.p-num { font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:600; color:#1e2d50; width:30px; text-align:right; padding:0 6px 0 10px; flex-shrink:0; }
-.p-name { font-size:13px; font-weight:500; color:#b0bcd4; flex:1; padding:8px 4px 8px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.p-row.selected .p-name { color:#fff; }
-.p-pick-wrap { padding:6px 10px 6px 4px; flex-shrink:0; position:relative; }
-.pick-icon { width:24px; height:24px; border-radius:50%; background:rgba(201,168,76,.1); border:1px solid rgba(201,168,76,.3); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .12s; padding:0; }
-.pick-icon:hover { background:rgba(201,168,76,.3); transform:scale(1.08); }
-.pick-icon svg { width:8px; height:8px; fill:#c9a84c; }
-.p-row.selected .pick-icon { background:#c9a84c; border-color:#c9a84c; }
-.p-row.selected .pick-icon svg { fill:#04091a; }
+.reset-btn {
+  margin-left:auto;
+  background:transparent;
+  border:1px solid rgba(127,29,29,.7);
+  color:#f87171;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
+  padding:7px 14px; border-radius:4px; cursor:pointer; transition:all .15s;
+}
+.reset-btn:hover { background:#7f1d1d; color:#fff; border-color:#ef4444; }
 
-.pick-pop { position:absolute; top:50%; right:calc(100% + 8px); transform:translateY(-50%); background:#0a1530; border:1px solid #c9a84c; border-radius:5px; padding:8px; min-width:200px; z-index:50; box-shadow:0 8px 28px rgba(0,0,0,.7), 0 0 0 4px rgba(201,168,76,.08); animation:popIn .12s ease-out; }
-@keyframes popIn { from { opacity:0; transform:translateY(-50%) translateX(6px); } to { opacity:1; transform:translateY(-50%) translateX(0); } }
-.pop-arrow { position:absolute; top:50%; right:-6px; transform:translateY(-50%) rotate(45deg); width:10px; height:10px; background:#0a1530; border-right:1px solid #c9a84c; border-top:1px solid #c9a84c; }
-.pop-label { font-family:'Barlow Condensed', sans-serif; font-size:10px; font-weight:800; letter-spacing:.22em; color:#c9a84c; text-transform:uppercase; padding:2px 6px 6px; }
-.pop-team { display:flex; align-items:center; gap:9px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.08); border-radius:3px; padding:7px 10px; cursor:pointer; transition:all .12s; margin-bottom:4px; text-align:left; }
-.pop-team:last-child { margin-bottom:0; }
-.pop-team:hover { border-color:#c9a84c; background:#0f1e38; transform:translateX(-2px); }
-.pop-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
-.pop-name { font-family:'Barlow Condensed', sans-serif; font-size:14px; font-weight:700; letter-spacing:.07em; color:#c8d4ec; text-transform:uppercase; flex:1; }
-.pop-ct { font-family:'Barlow Condensed', sans-serif; font-size:11px; color:#3a4f74; }
+/* ─── BODY ─── */
+.body { display:grid; grid-template-columns: 320px 1fr; min-height:580px; }
+@media (max-width: 820px) { .body { grid-template-columns: 1fr; } }
 
-.teams-col { padding:14px; overflow-y:auto; }
+.pool-col {
+  background:linear-gradient(180deg, #060d22, #050a1c);
+  border-right:1px solid rgba(201,168,76,.12);
+  display:flex; flex-direction:column;
+}
+.sec-hdr {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 18px;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.sec-eyebrow {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; font-weight:700; letter-spacing:.25em;
+  color:#4a5f88; text-transform:uppercase;
+}
+.sec-title {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:20px; font-weight:900; letter-spacing:.06em;
+  color:#fff; text-transform:uppercase;
+}
+.badge {
+  background:rgba(201,168,76,.12); color:#c9a84c;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:14px; font-weight:800; padding:3px 12px; border-radius:3px;
+  border:1px solid rgba(201,168,76,.32);
+  min-width:36px; text-align:center;
+}
+
+.inp-area { padding:14px 14px 12px; border-bottom:1px solid rgba(255,255,255,.05); }
+.inp-area textarea {
+  width:100%;
+  background:rgba(0,0,0,.4);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:5px;
+  color:#e2e8f4;
+  font-family:'Inter', sans-serif;
+  font-size:13px;
+  padding:10px 12px;
+  resize:none; height:74px; outline:none;
+  transition:border-color .15s, background .15s;
+}
+.inp-area textarea:focus { border-color:rgba(201,168,76,.5); background:rgba(0,0,0,.55); }
+.inp-area textarea::placeholder { color:#2a3a5e; }
+.add-btn {
+  margin-top:8px; width:100%;
+  background:linear-gradient(180deg, rgba(201,168,76,.2), rgba(201,168,76,.08));
+  border:1px solid rgba(201,168,76,.4); color:#c9a84c;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:13px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
+  padding:9px; border-radius:4px; cursor:pointer; transition:all .15s;
+}
+.add-btn:hover:not(:disabled) {
+  background:linear-gradient(180deg, rgba(201,168,76,.32), rgba(201,168,76,.14));
+  color:#fff;
+}
+.add-btn:disabled { opacity:.4; cursor:not-allowed; }
+
+.pool-list { flex:1; overflow-y:auto; padding:6px 0; }
+.pool-list::-webkit-scrollbar { width:4px; }
+.pool-list::-webkit-scrollbar-thumb { background:rgba(201,168,76,.25); border-radius:2px; }
+
+.empty-pool {
+  padding:48px 20px; text-align:center;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; color:#1f2d4d;
+  letter-spacing:.22em; text-transform:uppercase;
+}
+.empty-ico { font-size:32px; opacity:.25; margin-bottom:10px; }
+
+.p-row {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 14px;
+  border-bottom:1px solid rgba(255,255,255,.03);
+  transition:background .12s;
+}
+.p-row:hover { background:rgba(201,168,76,.04); }
+.p-row.active { background:rgba(201,168,76,.1); }
+.p-num {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:700; letter-spacing:.05em;
+  color:#2a3a5e; width:22px; flex-shrink:0;
+}
+.p-name {
+  flex:1; font-size:14px; color:#cbd5ee; font-weight:500;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.p-row.active .p-name, .p-row:hover .p-name { color:#fff; }
+.pick-btn {
+  display:inline-flex; align-items:center; gap:6px;
+  background:rgba(201,168,76,.12);
+  border:1px solid rgba(201,168,76,.35);
+  color:#c9a84c;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:800; letter-spacing:.15em; text-transform:uppercase;
+  padding:5px 10px; border-radius:3px;
+  cursor:pointer; transition:all .12s; flex-shrink:0;
+}
+.pick-btn:hover, .p-row.active .pick-btn {
+  background:#c9a84c; color:#04091a; border-color:#c9a84c;
+}
+
+/* ─── TEAMS ─── */
+.teams-col { padding:18px; overflow-y:auto; }
 .teams-col::-webkit-scrollbar { width:4px; }
 .teams-col::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:2px; }
-.teams-grid { display:grid; gap:12px; }
+.teams-grid { display:grid; gap:14px; }
 
-.tcard { background:#060d22; border:1px solid rgba(255,255,255,.07); border-radius:4px; overflow:hidden; transition:box-shadow .2s; }
-.tcard.on-clock { box-shadow:0 0 0 1px rgba(201,168,76,.5), 0 0 24px rgba(201,168,76,.18); }
-.tcard-hdr { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid rgba(255,255,255,.06); }
-.tcard-bar { width:3px; height:28px; border-radius:2px; flex-shrink:0; }
-.tcard-name { background:transparent; border:none; outline:none; font-family:'Barlow Condensed', sans-serif; font-size:16px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#fff; flex:1; min-width:0; cursor:pointer; }
-.tcard-name:focus { cursor:text; }
-.otc-pill { font-family:'Barlow Condensed', sans-serif; font-size:9px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; padding:2px 7px; border-radius:2px; background:#c9a84c; color:#04091a; flex-shrink:0; animation:pulse 1.6s infinite; }
-.tcard-pill { font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; padding:2px 10px; border-radius:2px; white-space:nowrap; flex-shrink:0; }
-.tcard-body { min-height:40px; }
-.tm-player { display:flex; align-items:center; padding:7px 13px; border-bottom:1px solid rgba(255,255,255,.04); cursor:pointer; transition:background .1s; gap:10px; }
+.tcard {
+  position:relative; overflow:hidden;
+  background:linear-gradient(180deg, #0a1228 0%, #060d22 100%);
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:6px;
+  transition:border-color .2s, box-shadow .2s;
+}
+.tcard.on-clock {
+  border-color:rgba(var(--tc-rgb), .55);
+  box-shadow:
+    0 0 0 1px rgba(var(--tc-rgb), .25),
+    0 0 32px -4px rgba(var(--tc-rgb), .35);
+}
+.tcard-stripe {
+  position:absolute; top:0; left:0; right:0; height:3px;
+  background:linear-gradient(90deg, var(--tc), rgba(var(--tc-rgb), .3));
+}
+.tcard-hdr {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 16px 12px;
+  border-bottom:1px solid rgba(255,255,255,.05);
+  background:linear-gradient(180deg, rgba(var(--tc-rgb), .08), transparent);
+}
+.tcard-id { display:flex; flex-direction:column; align-items:center; flex-shrink:0; }
+.tcard-num {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:30px; font-weight:900; line-height:1;
+  color:var(--tc); letter-spacing:.02em;
+}
+.tcard-color {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.22em;
+  color:rgba(var(--tc-rgb), .65); text-transform:uppercase; margin-top:4px;
+}
+.tcard-name-wrap { flex:1; min-width:0; }
+.tcard-name {
+  background:transparent; border:none; outline:none;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:22px; font-weight:900; letter-spacing:.06em; text-transform:uppercase;
+  color:#fff; width:100%; padding:2px 4px; margin:-2px -4px;
+  border-radius:3px;
+  transition:background .15s;
+}
+.tcard-name:hover { background:rgba(255,255,255,.04); }
+.tcard-name:focus { background:rgba(0,0,0,.3); }
+.tcard-stats {
+  display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+  color:#5a6f99;
+}
+.otc-pill {
+  background:var(--tc); color:#04091a;
+  padding:2px 7px; border-radius:2px; font-size:10px; white-space:nowrap;
+  font-weight:900; letter-spacing:.18em;
+  animation:pulse 1.6s infinite;
+}
+
+.tcard-body { min-height:80px; }
+.tm-player {
+  display:flex; align-items:center; gap:12px;
+  padding:9px 16px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  cursor:pointer; transition:background .12s;
+}
 .tm-player:last-child { border-bottom:none; }
-.tm-player:hover { background:rgba(239,68,68,.07); }
+.tm-player:hover { background:rgba(239,68,68,.08); }
 .tm-player:hover .rel-hint { opacity:1; }
-.tm-pick-no { font-family:'Barlow Condensed', sans-serif; font-size:10px; font-weight:800; letter-spacing:.1em; opacity:.6; min-width:22px; }
-.tm-pname { font-size:13px; color:#cdd7eb; flex:1; }
-.rel-hint { font-family:'Barlow Condensed', sans-serif; font-size:10px; color:#ef4444; opacity:0; transition:opacity .12s; font-weight:700; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
-.empty-team { padding:14px; text-align:center; font-family:'Barlow Condensed', sans-serif; font-size:11px; color:#1a2640; letter-spacing:.15em; text-transform:uppercase; }
+.tm-round {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; font-weight:800; letter-spacing:.12em;
+  color:rgba(var(--tc-rgb), .8);
+  min-width:24px;
+  background:rgba(var(--tc-rgb), .12);
+  padding:2px 5px; border-radius:2px;
+  text-align:center;
+}
+.tm-pname { flex:1; font-size:14px; color:#cdd7eb; font-weight:500; }
+.rel-hint {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; color:#ef4444; font-weight:800;
+  letter-spacing:.16em; text-transform:uppercase;
+  opacity:0; transition:opacity .12s;
+}
+.empty-team {
+  padding:30px 16px; text-align:center;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; color:#1f2d4d;
+  letter-spacing:.22em; text-transform:uppercase;
+}
+.tcard.on-clock .empty-team { color:rgba(var(--tc-rgb), .55); }
 
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:500; display:flex; align-items:center; justify-content:center; }
-.modal { background:#07102a; border:1px solid rgba(201,168,76,.42); border-radius:6px; padding:28px 24px; width:300px; text-align:center; }
-.modal h3 { font-family:'Barlow Condensed', sans-serif; font-size:22px; font-weight:900; text-transform:uppercase; letter-spacing:.1em; color:#fff; margin:0 0 10px; }
-.modal p { font-size:13px; color:#5a6f99; margin:0 0 22px; line-height:1.6; }
+/* ─── PORTAL POPOVER ─── */
+.pop {
+  position:fixed; z-index:9999; width:260px;
+  background:linear-gradient(180deg, #0a1530 0%, #07102a 100%);
+  border:1px solid rgba(201,168,76,.5);
+  border-radius:7px;
+  box-shadow:
+    0 24px 60px -10px rgba(0,0,0,.85),
+    0 0 0 6px rgba(201,168,76,.06),
+    0 0 40px -10px rgba(201,168,76,.3);
+  overflow:visible;
+  animation:popIn .14s cubic-bezier(.2,.8,.3,1.1);
+}
+@keyframes popIn { from { opacity:0; transform:scale(.96); } to { opacity:1; transform:scale(1); } }
+.pop-arrow {
+  position:absolute; width:11px; height:11px;
+  background:#0a1530; border:1px solid rgba(201,168,76,.5);
+  border-right:none; border-top:none;
+  transform:rotate(45deg);
+}
+.pop-left .pop-arrow { right:-7px; top:50%; margin-top:-5.5px;
+  background:#07102a; border:1px solid rgba(201,168,76,.5); border-left:none; border-bottom:none; }
+.pop-right .pop-arrow { left:-7px; top:50%; margin-top:-5.5px; }
+.pop-below .pop-arrow { top:-7px; left:24px;
+  background:#0a1530; border:1px solid rgba(201,168,76,.5); border-right:none; border-bottom:none; }
+
+.pop-hdr {
+  padding:12px 14px 10px;
+  border-bottom:1px solid rgba(201,168,76,.15);
+  background:linear-gradient(180deg, rgba(201,168,76,.1), transparent);
+}
+.pop-eyebrow {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:9px; font-weight:800; letter-spacing:.28em;
+  color:#c9a84c; text-transform:uppercase; margin-bottom:3px;
+}
+.pop-name {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:18px; font-weight:900; letter-spacing:.04em;
+  color:#fff; text-transform:uppercase;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.pop-list { padding:8px; display:flex; flex-direction:column; gap:5px; }
+.pop-team {
+  display:flex; align-items:center; gap:10px;
+  background:rgba(0,0,0,.3);
+  border:1px solid rgba(255,255,255,.07);
+  border-left:3px solid var(--tc);
+  border-radius:4px;
+  padding:9px 12px;
+  cursor:pointer; transition:all .12s;
+  text-align:left;
+}
+.pop-team:hover {
+  background:rgba(var(--tc-rgb), .14);
+  border-color:rgba(var(--tc-rgb), .55);
+  border-left-color:var(--tc);
+  transform:translateX(2px);
+}
+.pop-dot {
+  width:9px; height:9px; border-radius:50%; background:var(--tc);
+  box-shadow:0 0 8px var(--tc);
+  flex-shrink:0;
+}
+.pop-team-name {
+  flex:1;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:14px; font-weight:800; letter-spacing:.08em;
+  color:#fff; text-transform:uppercase;
+}
+.pop-team-ct {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:700;
+  color:rgba(var(--tc-rgb), .9);
+  background:rgba(var(--tc-rgb), .14);
+  padding:2px 7px; border-radius:2px; min-width:22px; text-align:center;
+}
+.pop-foot {
+  padding:8px 14px 10px;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; font-weight:600; letter-spacing:.18em;
+  color:#3a4f74; text-transform:uppercase; text-align:center;
+  border-top:1px solid rgba(255,255,255,.04);
+}
+
+/* ─── MODAL ─── */
+.modal-overlay {
+  position:fixed; inset:0;
+  background:rgba(2,5,12,.78);
+  backdrop-filter:blur(4px);
+  z-index:1000;
+  display:flex; align-items:center; justify-content:center;
+  animation:fade .15s ease-out;
+}
+@keyframes fade { from { opacity:0 } to { opacity:1 } }
+.modal {
+  background:linear-gradient(180deg, #0a1530, #07102a);
+  border:1px solid rgba(201,168,76,.45);
+  border-radius:8px;
+  padding:28px 26px;
+  width:340px; max-width:calc(100vw - 32px);
+  text-align:center;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.9);
+}
+.modal h3 {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:24px; font-weight:900;
+  text-transform:uppercase; letter-spacing:.1em;
+  color:#fff; margin:0 0 10px;
+}
+.modal p { font-size:13px; color:#7387ad; margin:0 0 22px; line-height:1.6; }
 .modal-btns { display:flex; gap:10px; }
-.mbtn { flex:1; font-family:'Barlow Condensed', sans-serif; font-size:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:10px; border-radius:3px; cursor:pointer; border:1px solid; transition:all .12s; }
-.mbtn-cancel { background:transparent; border-color:rgba(255,255,255,.12); color:#5a6f99; }
-.mbtn-cancel:hover { background:rgba(255,255,255,.05); }
+.mbtn {
+  flex:1; font-family:'Barlow Condensed', sans-serif;
+  font-size:13px; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
+  padding:11px; border-radius:4px; cursor:pointer; border:1px solid; transition:all .12s;
+}
+.mbtn-cancel { background:transparent; border-color:rgba(255,255,255,.14); color:#7387ad; }
+.mbtn-cancel:hover { background:rgba(255,255,255,.06); color:#fff; }
 .mbtn-ok { background:#b91c1c; border-color:#b91c1c; color:#fff; }
 .mbtn-ok:hover { background:#ef4444; border-color:#ef4444; }
 
 @media (max-width: 760px) {
-  .body { grid-template-columns: 1fr; }
+  .page { padding:10px; }
+  .hdr { padding:16px 14px 14px; gap:12px; }
   .hdr-title { font-size:24px; }
-  .hdr { padding:12px 14px 10px; }
-  .hdr-shield { width:40px; height:48px; }
-  .pick-pop { right:auto; left:0; top:calc(100% + 8px); transform:none; }
-  .pop-arrow { top:-6px; right:auto; left:14px; transform:rotate(225deg); }
+  .crest { width:42px; height:50px; }
+  .stat { padding:5px 10px; min-width:64px; }
+  .stat-val { font-size:16px; }
+  .broadcast { padding:12px 14px; gap:12px; }
+  .bc-divider { display:none; }
+  .teams-col { padding:12px; }
+  .teams-grid { grid-template-columns:1fr !important; }
 }
 `;
