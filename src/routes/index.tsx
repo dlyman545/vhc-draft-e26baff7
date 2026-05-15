@@ -90,7 +90,7 @@ function DraftPage() {
         .from("draft_state")
         .upsert({
           id: DRAFT_ID,
-          state: S as unknown as object,
+          state: S as unknown as never,
           updated_at: new Date().toISOString(),
         })
         .then(() => {});
