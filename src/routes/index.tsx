@@ -826,14 +826,14 @@ html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', syst
 .tcard-name:hover { background:rgba(255,255,255,.04); }
 .tcard-name:focus { background:rgba(0,0,0,.3); }
 .tcard-stats {
-  display:flex; align-items:center; gap:10px; margin-top:4px;
+  display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;
   font-family:'Barlow Condensed', sans-serif;
   font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
   color:#5a6f99;
 }
 .otc-pill {
   background:var(--tc); color:#04091a;
-  padding:2px 8px; border-radius:2px;
+  padding:2px 7px; border-radius:2px; font-size:10px; white-space:nowrap;
   font-weight:900; letter-spacing:.18em;
   animation:pulse 1.6s infinite;
 }
