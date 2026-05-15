@@ -43,6 +43,7 @@ function DraftPage() {
   const [loaded, setLoaded] = useState(false);
   const [popover, setPopover] = useState<{ name: string; rect: DOMRect } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmClearPool, setConfirmClearPool] = useState(false);
   const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
   const localVersion = useRef(0);
@@ -155,6 +156,11 @@ function DraftPage() {
       };
     });
     setConfirmClear(false);
+  };
+
+  const clearPool = () => {
+    setS((prev) => ({ ...prev, pool: [] }));
+    setConfirmClearPool(false);
   };
 
   const renameTeam = (ti: number, n: string) =>
@@ -316,7 +322,17 @@ function DraftPage() {
                   <div className="sec-eyebrow">Available</div>
                   <div className="sec-title">Draft Pool</div>
                 </div>
-                <span className="badge">{S.pool.length}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="badge">{S.pool.length}</span>
+                  <button
+                    className="clear-pool-btn"
+                    onClick={() => setConfirmClearPool(true)}
+                    disabled={S.pool.length === 0}
+                    title="Clear draft pool"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
               <div className="inp-area">
@@ -458,6 +474,22 @@ function DraftPage() {
             <div className="modal-btns">
               <button className="mbtn mbtn-cancel" onClick={() => setConfirmClear(false)}>Cancel</button>
               <button className="mbtn mbtn-ok" onClick={clearAll}>Reset</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearPool && (
+        <div className="modal-overlay" onClick={() => setConfirmClearPool(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Clear the Draft Pool?</h3>
+            <p>
+              This removes all {S.pool.length} undrafted prospect(s) from the pool.
+              Players already on teams are not affected. This affects every viewer in real time.
+            </p>
+            <div className="modal-btns">
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmClearPool(false)}>Cancel</button>
+              <button className="mbtn mbtn-ok" onClick={clearPool}>Clear Pool</button>
             </div>
           </div>
         </div>
@@ -746,6 +778,17 @@ html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', syst
   padding:7px 14px; border-radius:4px; cursor:pointer; transition:all .15s;
 }
 .reset-btn:hover { background:#7f1d1d; color:#fff; border-color:#ef4444; }
+
+.clear-pool-btn {
+  background:transparent;
+  border:1px solid rgba(127,29,29,.6);
+  color:#f87171;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
+  padding:4px 9px; border-radius:3px; cursor:pointer; transition:all .15s;
+}
+.clear-pool-btn:hover:not(:disabled) { background:#7f1d1d; color:#fff; border-color:#ef4444; }
+.clear-pool-btn:disabled { opacity:.35; cursor:not-allowed; }
 
 /* ─── BODY ─── */
 .body { display:grid; grid-template-columns: 320px 1fr; min-height:580px; }
