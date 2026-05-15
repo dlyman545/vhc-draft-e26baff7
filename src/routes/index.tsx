@@ -462,6 +462,23 @@ function DraftPage() {
           </div>
         </div>
       )}
+
+      {confirmShrink && (
+        <div className="modal-overlay" onClick={() => setConfirmShrink(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Reduce to {confirmShrink.newTc} teams?</h3>
+            <p>
+              {confirmShrink.affected.reduce((s, a) => s + a.players.length, 0)} player(s) are
+              assigned to team(s) being removed. What would you like to do?
+            </p>
+            <div className="modal-btns" style={{ flexWrap: "wrap" }}>
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmShrink(null)}>Cancel</button>
+              <button className="mbtn mbtn-ok" onClick={shrinkReleaseOnly}>Release those players</button>
+              <button className="mbtn mbtn-ok" onClick={shrinkResetAll}>Reset full draft</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
