@@ -584,100 +584,10 @@ function Crest() {
   );
 }
 
-function PickPopover({
-  anchor,
-  teams,
-  name,
-  onPick,
-  onClose,
-}: {
-  anchor: DOMRect;
-  teams: Team[];
-  name: string;
-  onPick: (ti: number) => void;
-  onClose: () => void;
-  }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; placement: "left" | "right" | "below" }>(
-    { top: 0, left: 0, placement: "left" }
-  );
-
-  useLayoutEffect(() => {
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    const popW = 260;
-    const popH = ref.current?.offsetHeight ?? 200;
-    const gap = 10;
-
-    let placement: "left" | "right" | "below" = "left";
-    let left = anchor.left - popW - gap;
-    let top = anchor.top + anchor.height / 2 - popH / 2;
-
-    if (left < 12) {
-      // not enough room to the left, try right
-      const r = anchor.right + gap;
-      if (r + popW < W - 12) {
-        placement = "right";
-        left = r;
-      } else {
-        placement = "below";
-        left = Math.max(12, Math.min(anchor.left, W - popW - 12));
-        top = anchor.bottom + gap;
-      }
-    }
-    top = Math.max(12, Math.min(top, H - popH - 12));
-    setPos({ top, left, placement });
-  }, [anchor]);
-
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className={`pop pop-${pos.placement}`}
-      ref={ref}
-      style={{ top: pos.top, left: pos.left }}
-    >
-      <div className="pop-arrow" />
-      <div className="pop-hdr">
-        <div className="pop-eyebrow">Selecting</div>
-        <div className="pop-name">{name}</div>
-      </div>
-      <div className="pop-list">
-        {teams.map((t, ti) => (
-          <button
-            key={ti}
-            className="pop-team"
-            style={{
-              ["--tc" as string]: COLORS[ti],
-              ["--tc-rgb" as string]: hexToRgb(COLORS[ti]),
-            }}
-            onClick={() => onPick(ti)}
-          >
-            <span className="pop-dot" />
-            <span className="pop-team-name">{t.n}</span>
-            <span className="pop-team-ct">{t.p.length}</span>
-          </button>
-        ))}
-      </div>
-      <div className="pop-foot">Press Esc to cancel</div>
-    </div>,
-    document.body
-  );
-}
-
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
+
+@keyframes coinflip { 0% { transform: rotateY(0deg) } 100% { transform: rotateY(360deg) } }
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', system-ui, sans-serif; min-height:100vh; margin:0; }
