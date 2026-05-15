@@ -444,7 +444,7 @@ function DraftPage() {
                       <header className="tcard-hdr">
                         <div className="tcard-id">
                           <div className="tcard-num">{String(ti + 1).padStart(2, "0")}</div>
-                          <div className="tcard-color">{COLOR_NAMES[ti]}</div>
+                          <div className="tcard-color">{t.n}</div>
                         </div>
                         <div className="tcard-name-wrap">
                           <input
