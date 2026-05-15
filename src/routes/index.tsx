@@ -43,6 +43,7 @@ function DraftPage() {
   const [loaded, setLoaded] = useState(false);
   const [popover, setPopover] = useState<{ name: string; rect: DOMRect } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
   const localVersion = useRef(0);
 
@@ -162,8 +163,62 @@ function DraftPage() {
       teams: prev.teams.map((t, i) => (i === ti ? { ...t, n } : t)),
     }));
 
-  const setTc = (n: number) =>
+  const setTc = (n: number) => {
+    const affected = S.teams
+      .slice(n)
+      .map((t, i) => ({ ti: n + i, players: t.p }))
+      .filter((x) => x.players.length > 0);
+    if (n < S.tc && affected.length > 0) {
+      setConfirmShrink({ newTc: n, affected });
+      return;
+    }
     setS((prev) => ({ ...prev, tc: n }));
+  };
+
+  const shrinkReleaseOnly = () => {
+    if (!confirmShrink) return;
+    const { newTc, affected } = confirmShrink;
+    const releasedNames = affected.flatMap((a) => a.players);
+    const releasedSet = new Set(releasedNames);
+    setS((prev) => {
+      const seen = new Set<string>();
+      const pool = [...releasedNames, ...prev.pool].filter((n) => {
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+      return {
+        ...prev,
+        tc: newTc,
+        teams: prev.teams.map((t, i) => (i >= newTc ? { ...t, p: [] } : t)),
+        pool,
+        picks: prev.picks.filter((pk) => !(pk.team >= newTc && releasedSet.has(pk.name))),
+      };
+    });
+    setConfirmShrink(null);
+  };
+
+  const shrinkResetAll = () => {
+    if (!confirmShrink) return;
+    const { newTc } = confirmShrink;
+    setS((prev) => {
+      const allPlayers = prev.teams.flatMap((t) => t.p);
+      const seen = new Set<string>();
+      const pool = [...allPlayers, ...prev.pool].filter((n) => {
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+      return {
+        ...prev,
+        tc: newTc,
+        teams: prev.teams.map((t) => ({ ...t, p: [] })),
+        pool,
+        picks: [],
+      };
+    });
+    setConfirmShrink(null);
+  };
 
   const visibleTeams = useMemo(() => S.teams.slice(0, S.tc), [S.teams, S.tc]);
 
@@ -403,6 +458,23 @@ function DraftPage() {
             <div className="modal-btns">
               <button className="mbtn mbtn-cancel" onClick={() => setConfirmClear(false)}>Cancel</button>
               <button className="mbtn mbtn-ok" onClick={clearAll}>Reset</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmShrink && (
+        <div className="modal-overlay" onClick={() => setConfirmShrink(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Reduce to {confirmShrink.newTc} teams?</h3>
+            <p>
+              {confirmShrink.affected.reduce((s, a) => s + a.players.length, 0)} player(s) are
+              assigned to team(s) being removed. What would you like to do?
+            </p>
+            <div className="modal-btns" style={{ flexWrap: "wrap" }}>
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmShrink(null)}>Cancel</button>
+              <button className="mbtn mbtn-ok" onClick={shrinkReleaseOnly}>Release those players</button>
+              <button className="mbtn mbtn-ok" onClick={shrinkResetAll}>Reset full draft</button>
             </div>
           </div>
         </div>
