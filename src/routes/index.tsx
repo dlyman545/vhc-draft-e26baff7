@@ -779,6 +779,17 @@ html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', syst
 }
 .reset-btn:hover { background:#7f1d1d; color:#fff; border-color:#ef4444; }
 
+.clear-pool-btn {
+  background:transparent;
+  border:1px solid rgba(127,29,29,.6);
+  color:#f87171;
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
+  padding:4px 9px; border-radius:3px; cursor:pointer; transition:all .15s;
+}
+.clear-pool-btn:hover:not(:disabled) { background:#7f1d1d; color:#fff; border-color:#ef4444; }
+.clear-pool-btn:disabled { opacity:.35; cursor:not-allowed; }
+
 /* ─── BODY ─── */
 .body { display:grid; grid-template-columns: 320px 1fr; min-height:580px; }
 @media (max-width: 820px) { .body { grid-template-columns: 1fr; } }
