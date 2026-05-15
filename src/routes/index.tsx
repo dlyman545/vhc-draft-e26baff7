@@ -140,10 +140,16 @@ function DraftPage() {
   const clearAll = () => {
     setS((prev) => {
       const allPlayers = prev.teams.flatMap((t) => t.p);
+      const seen = new Set<string>();
+      const pool = [...allPlayers, ...prev.pool].filter((n) => {
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
       return {
         ...prev,
         teams: prev.teams.map((t) => ({ ...t, p: [] })),
-        pool: [...allPlayers, ...prev.pool],
+        pool,
         picks: [],
       };
     });
