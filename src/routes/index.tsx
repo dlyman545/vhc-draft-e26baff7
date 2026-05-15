@@ -48,6 +48,7 @@ function DraftPage() {
   const [input, setInput] = useState("");
   const [coinFlip, setCoinFlip] = useState<{ spinning: boolean; winner: number | null }>({ spinning: false, winner: null });
   const localVersion = useRef(0);
+  const lastSentJSON = useRef<string>("");
 
   useEffect(() => {
     let active = true;
@@ -72,7 +73,10 @@ function DraftPage() {
         (payload) => {
           const next = (payload.new as { state?: DraftState })?.state;
           if (next && Object.keys(next).length) {
-            setS({ ...DEFAULT_STATE, ...next });
+            const merged = { ...DEFAULT_STATE, ...next };
+            // Ignore echoes of our own writes — they cause re-renders that swallow clicks.
+            if (JSON.stringify(merged) === lastSentJSON.current) return;
+            setS(merged);
           }
         }
       )
@@ -89,6 +93,7 @@ function DraftPage() {
     const v = ++localVersion.current;
     const t = setTimeout(() => {
       if (v !== localVersion.current) return;
+      lastSentJSON.current = JSON.stringify(S);
       supabase
         .from("draft_state")
         .upsert({
