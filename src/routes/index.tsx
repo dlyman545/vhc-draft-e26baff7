@@ -46,6 +46,7 @@ function DraftPage() {
   const [confirmShrink, setConfirmShrink] = useState<{ newTc: number; affected: { ti: number; players: string[] }[] } | null>(null);
   const [input, setInput] = useState("");
   const [coinFlip, setCoinFlip] = useState<{ spinning: boolean; winner: number | null }>({ spinning: false, winner: null });
+  const [confirmRelease, setConfirmRelease] = useState<{ name: string; ti: number } | null>(null);
 
   useEffect(() => {
     try {
@@ -78,6 +79,7 @@ function DraftPage() {
   const firstPick = S.firstPick ?? 0;
   const onTheClockIdx = (totalPicks + firstPick) % S.tc;
   const lastPick = S.picks[S.picks.length - 1];
+  const draftComplete = loaded && S.pool.length === 0 && S.picks.length > 0;
 
   const addPlayers = () => {
     const names = input.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -250,12 +252,12 @@ function DraftPage() {
                 <span
                   className="bc-dot"
                   style={{
-                    background: COLORS[onTheClockIdx],
-                    boxShadow: `0 0 14px ${COLORS[onTheClockIdx]}`,
+                    background: draftComplete ? "#c9a84c" : COLORS[onTheClockIdx],
+                    boxShadow: draftComplete ? "0 0 14px #c9a84c" : `0 0 14px ${COLORS[onTheClockIdx]}`,
                   }}
                 />
-                <span style={{ color: COLORS[onTheClockIdx] }}>
-                  {visibleTeams[onTheClockIdx]?.n ?? "—"}
+                <span style={{ color: draftComplete ? "#c9a84c" : COLORS[onTheClockIdx] }}>
+                  {draftComplete ? "Draft Complete" : (visibleTeams[onTheClockIdx]?.n ?? "—")}
                 </span>
               </div>
             </div>
@@ -395,7 +397,7 @@ function DraftPage() {
                 {visibleTeams.map((t, ti) => {
                   const c = COLORS[ti];
                   const rgb = hexToRgb(c);
-                  const onClock = ti === onTheClockIdx;
+                  const onClock = ti === onTheClockIdx && !draftComplete;
                   return (
                     <section
                       key={ti}
@@ -420,6 +422,7 @@ function DraftPage() {
                           <div className="tcard-stats">
                             <span>{t.p.length} {t.p.length === 1 ? "player" : "players"}</span>
                             {onClock && <span className="otc-pill">● On the Clock</span>}
+                            {draftComplete && <span className="otc-pill complete">✓ Team Complete</span>}
                           </div>
                         </div>
                       </header>
@@ -433,7 +436,7 @@ function DraftPage() {
                             const idx = pickIndexFor(p, ti);
                             const r = idx >= 0 ? Math.floor(idx / S.tc) + 1 : 1;
                             return (
-                              <div key={p} className="tm-player" onClick={() => release(p, ti)}>
+                              <div key={p} className="tm-player" onClick={() => setConfirmRelease({ name: p, ti })}>
                                 <span className="tm-round">R{r}</span>
                                 <span className="tm-pname">{p}</span>
                                 <span className="rel-hint">Release</span>
@@ -521,6 +524,30 @@ function DraftPage() {
               <button className="mbtn mbtn-cancel" onClick={() => setConfirmShrink(null)}>Cancel</button>
               <button className="mbtn mbtn-ok" onClick={shrinkReleaseOnly}>Release those players</button>
               <button className="mbtn mbtn-ok" onClick={shrinkResetAll}>Reset full draft</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRelease && (
+        <div className="modal-overlay" onClick={() => setConfirmRelease(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Release {confirmRelease.name}?</h3>
+            <p>
+              This returns <strong>{confirmRelease.name}</strong> from{" "}
+              <strong>{S.teams[confirmRelease.ti]?.n}</strong> back to the draft pool.
+            </p>
+            <div className="modal-btns">
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmRelease(null)}>Cancel</button>
+              <button
+                className="mbtn mbtn-ok"
+                onClick={() => {
+                  release(confirmRelease.name, confirmRelease.ti);
+                  setConfirmRelease(null);
+                }}
+              >
+                Release
+              </button>
             </div>
           </div>
         </div>
@@ -881,6 +908,10 @@ html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', syst
   padding:2px 7px; border-radius:2px; font-size:10px; white-space:nowrap;
   font-weight:900; letter-spacing:.18em;
   animation:pulse 1.6s infinite;
+}
+.otc-pill.complete {
+  background:#c9a84c; color:#1a1408;
+  animation:none;
 }
 
 .tcard-body { min-height:80px; }
