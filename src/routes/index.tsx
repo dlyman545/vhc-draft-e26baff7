@@ -528,6 +528,30 @@ function DraftPage() {
           </div>
         </div>
       )}
+
+      {confirmRelease && (
+        <div className="modal-overlay" onClick={() => setConfirmRelease(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Release {confirmRelease.name}?</h3>
+            <p>
+              This returns <strong>{confirmRelease.name}</strong> from{" "}
+              <strong>{S.teams[confirmRelease.ti]?.n}</strong> back to the draft pool.
+            </p>
+            <div className="modal-btns">
+              <button className="mbtn mbtn-cancel" onClick={() => setConfirmRelease(null)}>Cancel</button>
+              <button
+                className="mbtn mbtn-ok"
+                onClick={() => {
+                  release(confirmRelease.name, confirmRelease.ti);
+                  setConfirmRelease(null);
+                }}
+              >
+                Release
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
