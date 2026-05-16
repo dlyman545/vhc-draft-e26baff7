@@ -909,6 +909,10 @@ html, body, #root { background:#03060f; color:#e2e8f4; font-family:'Inter', syst
   font-weight:900; letter-spacing:.18em;
   animation:pulse 1.6s infinite;
 }
+.otc-pill.complete {
+  background:#c9a84c; color:#1a1408;
+  animation:none;
+}
 
 .tcard-body { min-height:80px; }
 .tm-player {
